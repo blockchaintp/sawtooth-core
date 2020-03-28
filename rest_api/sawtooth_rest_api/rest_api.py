@@ -157,17 +157,22 @@ class MetricsRegistryWrapper():
     def __init__(self, registry):
         self._registry = registry
 
+    def _get_host(self):
+        if os.environ.get('NODE_NAME'):
+            return os.environ.get('NODE_NAME')
+        return platform.node()
+
     def gauge(self, name):
         return self._registry.gauge(
-            ''.join([name, ',host=', platform.node()]))
+            ''.join([name, ',host=', self._get_host()]))
 
     def counter(self, name):
         return self._registry.counter(
-            ''.join([name, ',host=', platform.node()]))
+            ''.join([name, ',host=', self._get_host()]))
 
     def timer(self, name):
         return self._registry.timer(
-            ''.join([name, ',host=', platform.node()]))
+            ''.join([name, ',host=', self._get_host()]))
 
 
 def main():
