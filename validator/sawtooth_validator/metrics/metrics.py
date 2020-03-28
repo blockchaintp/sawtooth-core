@@ -74,6 +74,7 @@ could also separate out these metrics by instance id, adding a name tag makes
 interpreting the metrics much easier.
 """
 
+import os
 import platform
 
 
@@ -118,9 +119,12 @@ class MetricsCollector:
 
         self._noop_registry = NoOpMetricsRegistry()
         self._registry = registry
-
+        if os.environ.get('NODE_NAME'):
+            host_tag = os.environ.get('NODE_NAME')
+        else:
+            host_tag = platform.node()
         self._base_tags = (
-            ("host", platform.node()),
+            ("host", host_tag),
         )
 
     def gauge(self, identifier, level, instance=None, tags=None):
