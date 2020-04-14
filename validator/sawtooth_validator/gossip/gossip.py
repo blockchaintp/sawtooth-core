@@ -666,11 +666,6 @@ class ConnectionManager(InstrumentedThread):
 
                     if static_peer_info.retry_threshold == \
                             MAXIMUM_STATIC_RETRY_FREQUENCY:
-                        if static_peer_info.count >= MAXIMUM_STATIC_RETRIES:
-                            # Unable to peer with endpoint
-                            to_remove.append(endpoint)
-                            continue
-
                         # At maximum retry threashold, increment count
                         self._static_peer_status[endpoint] = \
                             StaticPeerInfo(
