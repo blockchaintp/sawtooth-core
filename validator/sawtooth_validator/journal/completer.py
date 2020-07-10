@@ -119,6 +119,7 @@ class Completer:
             # The predecessor dropped out of the block manager between when we
             # checked if it was there and when the block was determined to be
             # complete.
+            LOGGER.debug("EDE_MissingPredecessor: %s", blkw.previous_block_id)
             return self._request_previous_if_not_already_requested(blkw)
 
     def _request_previous_if_not_already_requested(self, blkw):
@@ -130,6 +131,7 @@ class Completer:
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
+            LOGGER.debug("EDE_AlreadyRequested: %s deps %d", blkw.previous_block_id, len(self._incomplete_blocks[blkw.previous_block_id]))
             return None
 
         LOGGER.debug(
@@ -160,6 +162,8 @@ class Completer:
 
         """
 
+        LOGGER.debug("EDE_CompleteBlock: %s prev %s inc_block %d inc_batch %d", block, block.previous_block_id, self._incomplete_blocks_length, self._incomplete_batches_length)
+
         if block.header_signature in self._block_manager:
             LOGGER.debug("Drop duplicate block: %s", block)
             return None
@@ -184,6 +188,7 @@ class Completer:
         # The block is missing batches. Check to see if we can complete it.
         if len(block.batches) != len(block.header.batch_ids):
             building = True
+            LOGGER.debug("EDE_BatchesMissing: %d != %d", len(block.batches), len(block.header.batch_ids))
             for batch_id in block.header.batch_ids:
                 if batch_id not in self._batch_cache and \
                         batch_id not in temp_batches:
@@ -297,6 +302,7 @@ class Completer:
 
     def _process_incomplete_blocks(self, key):
         # Keys are either a block_id or batch_id
+        LOGGER.debug("EDE_ProcessIncompleteBlocks: %s of %d", key, self._incomplete_blocks_length)
         if key in self._incomplete_blocks:
             to_complete = deque()
             to_complete.append(key)
