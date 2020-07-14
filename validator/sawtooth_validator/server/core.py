@@ -285,6 +285,7 @@ class Validator:
                 block_store.get_batch_by_transaction
             ),
             gossip=gossip,
+            data_dir=data_dir,
             cache_keep_time=base_keep_time,
             cache_purge_frequency=30,
             requested_keep_time=300)

@@ -17,6 +17,9 @@ import logging
 from threading import RLock
 from collections import deque
 
+import os
+import diskcache
+
 from sawtooth_validator.journal.block_manager import MissingPredecessor
 from sawtooth_validator.journal.block_wrapper import BlockWrapper
 from sawtooth_validator.journal.timed_cache import TimedCache
@@ -49,7 +52,8 @@ class Completer:
                  get_committed_batch_by_id,
                  get_committed_batch_by_txn_id,
                  gossip,
-                 cache_keep_time=1200,
+                 data_dir,
+                 cache_keep_time=10,
                  cache_purge_frequency=30,
                  requested_keep_time=300):
         """
@@ -64,6 +68,7 @@ class Completer:
             batch from a committed transction id.
         :param gossip (gossip.Gossip) Broadcasts block and batch request to
                 peers
+        :param data_dir (string) The directory to store data in
         :param cache_keep_time (float) Time in seconds to keep values in
             TimedCaches.
         :param cache_purge_frequency (float) Time between purging the
@@ -83,10 +88,12 @@ class Completer:
         self._get_committed_batch_by_txn_id = get_committed_batch_by_txn_id
 
         self._seen_txns = TimedCache(cache_keep_time, cache_purge_frequency)
+        LOGGER.debug("caches set to {} : {}".format(cache_keep_time, cache_purge_frequency))
         self._incomplete_batches = TimedCache(cache_keep_time,
                                               cache_purge_frequency)
         self._incomplete_blocks = TimedCache(cache_keep_time,
                                              cache_purge_frequency)
+        self._catchup_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"))
         self._requested = TimedCache(requested_keep_time,
                                      cache_purge_frequency)
         self._get_chain_head = None
@@ -119,10 +126,13 @@ class Completer:
             # The predecessor dropped out of the block manager between when we
             # checked if it was there and when the block was determined to be
             # complete.
-            LOGGER.debug("EDE_MissingPredecessor: %s", blkw.previous_block_id)
+            LOGGER.debug("EDE_MissingPredecessor: {}".format(blkw.previous_block_id))
             return self._request_previous_if_not_already_requested(blkw)
 
     def _request_previous_if_not_already_requested(self, blkw):
+        if blkw.header_signature in self._requested:
+            self._catchup_blocks[blkw.header_signature] = blkw.block.SerializeToString()
+
         if blkw.previous_block_id not in self._incomplete_blocks:
             self._incomplete_blocks[blkw.previous_block_id] = [blkw]
         elif blkw not in \
@@ -131,7 +141,7 @@ class Completer:
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
-            LOGGER.debug("EDE_AlreadyRequested: %s deps %d", blkw.previous_block_id, len(self._incomplete_blocks[blkw.previous_block_id]))
+            LOGGER.debug("EDE_AlreadyRequested: {} deps {}".format(blkw.previous_block_id, len(self._incomplete_blocks[blkw.previous_block_id])))
             return None
 
         LOGGER.debug(
@@ -162,7 +172,7 @@ class Completer:
 
         """
 
-        LOGGER.debug("EDE_CompleteBlock: %s prev %s inc_block %d inc_batch %d", block, block.previous_block_id, self._incomplete_blocks_length, self._incomplete_batches_length)
+        LOGGER.debug("EDE_CompleteBlock: {} prev {} inc_block {} inc_batch {}".format(block, block.previous_block_id, len(self._incomplete_blocks), len(self._incomplete_batches)))
 
         if block.header_signature in self._block_manager:
             LOGGER.debug("Drop duplicate block: %s", block)
@@ -188,7 +198,7 @@ class Completer:
         # The block is missing batches. Check to see if we can complete it.
         if len(block.batches) != len(block.header.batch_ids):
             building = True
-            LOGGER.debug("EDE_BatchesMissing: %d != %d", len(block.batches), len(block.header.batch_ids))
+            LOGGER.debug("EDE_BatchesMissing: {} != {}".format(len(block.batches), len(block.header.batch_ids)))
             for batch_id in block.header.batch_ids:
                 if batch_id not in self._batch_cache and \
                         batch_id not in temp_batches:
@@ -302,7 +312,7 @@ class Completer:
 
     def _process_incomplete_blocks(self, key):
         # Keys are either a block_id or batch_id
-        LOGGER.debug("EDE_ProcessIncompleteBlocks: %s of %d", key, self._incomplete_blocks_length)
+        LOGGER.debug("EDE_ProcessIncompleteBlocks: {} of {}".format(key, self._incomplete_blocks_length))
         if key in self._incomplete_blocks:
             to_complete = deque()
             to_complete.append(key)
