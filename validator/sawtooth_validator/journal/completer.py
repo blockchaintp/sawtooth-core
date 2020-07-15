@@ -130,14 +130,18 @@ class Completer:
             return self._request_previous_if_not_already_requested(blkw)
 
     def _request_previous_if_not_already_requested(self, blkw):
+        # This checks if the block is a parent, as it was put in _requested by a child
         if blkw.header_signature in self._requested:
+            LOGGER.debug("EDE_CatchupInsert: %s", blkw.previous_block_id)
+            # store sealed parent blocks in a disk cache so that the whole chain doesn't have to be in memory during catchup
             self._catchup_blocks[blkw.header_signature] = blkw.block.SerializeToString()
-
-        if blkw.previous_block_id not in self._incomplete_blocks:
-            self._incomplete_blocks[blkw.previous_block_id] = [blkw]
-        elif blkw not in \
-                self._incomplete_blocks[blkw.previous_block_id]:
-            self._incomplete_blocks[blkw.previous_block_id] += [blkw]
+        else:
+            # this is a child block, may be multiple of them due to a fork
+            if blkw.previous_block_id not in self._incomplete_blocks:
+                self._incomplete_blocks[blkw.previous_block_id] = [blkw]
+            elif blkw not in \
+                    self._incomplete_blocks[blkw.previous_block_id]:
+                self._incomplete_blocks[blkw.previous_block_id] += [blkw]
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
