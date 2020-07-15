@@ -121,6 +121,7 @@ class Completer:
     def _put_or_request_if_missing_predecessor(self, blkw):
         try:
             # Create Ref-B
+            LOGGER.debug("EDE_BlockManager_Put: {}".format(blkw.header_signature))
             self._block_manager.put([blkw.block])
             return blkw
         except MissingPredecessor:
@@ -135,7 +136,10 @@ class Completer:
         if blkw.header_signature in self._requested:
             LOGGER.debug("EDE_CatchupInsert: %s", blkw.previous_block_id)
             # store sealed parent blocks in a disk cache so that the whole chain doesn't have to be in memory during catchup
-            self._catchup_blocks[blkw.header_signature] = blkw.block.SerializeToString()
+            if blkw.previous_block_id not in self._catchup_blocks:
+                self._catchup_blocks[blkw.previous_block_id] = [blkw.block.SerializeToString()]
+            else:
+                self._catchup_blocks[blkw.previous_block_id] += [blkw.block.SerializeToString()]
         else:
             # this is a child block, may be multiple of them due to a fork
             if blkw.previous_block_id not in self._incomplete_blocks:
@@ -146,7 +150,7 @@ class Completer:
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
-            LOGGER.debug("EDE_AlreadyRequested: {} deps {}".format(blkw.previous_block_id, len(self._incomplete_blocks[blkw.previous_block_id])))
+            LOGGER.debug("EDE_AlreadyRequested: {} deps".format(blkw.previous_block_id))
             return None
 
         LOGGER.debug(
@@ -326,15 +330,19 @@ class Completer:
                 my_key = to_complete.popleft()
                 # incomplete blocks may be in the disk (sealed) or memory (active) cache
                 if my_key in self._catchup_blocks:
-                    # create new wrapped block from stored byte string
-                    block = Block()
-                    block.ParseFromString(self._catchup_blocks[my_key])
-                    # this new inc_block is the lone child of my_key
-                    inc_block = BlockWrapper(block=block)
-                    if self._complete_block(inc_block):
-                        self._send_block(inc_block.block)
-                        # now loop to process the child as a parent
-                        to_complete.append(inc_block.header_signature)
+                    inc_blocks = self._catchup_blocks[my_key]
+                    for serialized_block in inc_blocks:
+                        # create new wrapped block from stored byte string
+                        block = Block()
+                        block.ParseFromString(serialized_block)
+                        # this new inc_block is the lone child of my_key
+                        inc_block = BlockWrapper(block=block)
+                        LOGGER.debug("EDE_BlockWrapper: {}".format(inc_block.header_signature))
+                        if self._complete_block(inc_block):
+                            LOGGER.debug("EDE_Complete Finished")
+                            self._send_block(inc_block.block)
+                            # now loop to process the child as a parent
+                            to_complete.append(inc_block.header_signature)
                     del self._catchup_blocks[my_key]
                 elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
