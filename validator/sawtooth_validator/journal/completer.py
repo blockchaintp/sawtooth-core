@@ -24,6 +24,7 @@ from sawtooth_validator.journal.block_manager import MissingPredecessor
 from sawtooth_validator.journal.block_wrapper import BlockWrapper
 from sawtooth_validator.journal.timed_cache import TimedCache
 from sawtooth_validator.protobuf.transaction_pb2 import TransactionHeader
+from sawtooth_validator.protobuf.block_pb2 import Block
 from sawtooth_validator.protobuf import network_pb2
 from sawtooth_validator.networking.dispatch import Handler
 from sawtooth_validator.networking.dispatch import HandlerResult
@@ -316,14 +317,26 @@ class Completer:
 
     def _process_incomplete_blocks(self, key):
         # Keys are either a block_id or batch_id
-        LOGGER.debug("EDE_ProcessIncompleteBlocks: {} of {}".format(key, self._incomplete_blocks_length))
-        if key in self._incomplete_blocks:
+        LOGGER.debug("EDE_ProcessIncompleteBlocks: {} of {}".format(key, len(self._incomplete_blocks)))
+        if key in self._incomplete_blocks or key in self._catchup_blocks:
             to_complete = deque()
             to_complete.append(key)
 
             while to_complete:
                 my_key = to_complete.popleft()
-                if my_key in self._incomplete_blocks:
+                # incomplete blocks may be in the disk (sealed) or memory (active) cache
+                if my_key in self._catchup_blocks:
+                    # create new wrapped block from stored byte string
+                    block = Block()
+                    block.ParseFromString(self._catchup_blocks[my_key])
+                    # this new inc_block is the lone child of my_key
+                    inc_block = BlockWrapper(block=block)
+                    if self._complete_block(inc_block):
+                        self._send_block(inc_block.block)
+                        # now loop to process the child as a parent
+                        to_complete.append(inc_block.header_signature)
+                    del self._catchup_blocks[my_key]
+                elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
                     for inc_block in inc_blocks:
                         if self._complete_block(inc_block):
