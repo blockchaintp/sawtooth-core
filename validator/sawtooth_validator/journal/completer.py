@@ -94,7 +94,7 @@ class Completer:
                                               cache_purge_frequency)
         self._incomplete_blocks = TimedCache(cache_keep_time,
                                              cache_purge_frequency)
-        self._catchup_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"))
+        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"))
         self._requested = TimedCache(requested_keep_time,
                                      cache_purge_frequency)
         self._get_chain_head = None
@@ -138,8 +138,8 @@ class Completer:
 
         # This checks if the block is a parent (since a child requested it) and therefore stable and disk cacheable
         if blkw.header_signature in self._requested:
-            LOGGER.debug("EDE_CatchupInsert: %s", blkw.previous_block_id)
-            cache = self._catchup_blocks
+            LOGGER.debug("EDE_diskInsert: %s", blkw.previous_block_id)
+            cache = self._disk_blocks
             value = blkw.block.SerializeToString()
 
         # this is a child block, may be multiple of them due to a fork
@@ -322,7 +322,7 @@ class Completer:
     def _process_incomplete_blocks(self, key):
         # Keys are either a block_id or batch_id
         LOGGER.debug("EDE_ProcessIncompleteBlocks: {} of {}".format(key, len(self._incomplete_blocks)))
-        if key in self._incomplete_blocks or key in self._catchup_blocks:
+        if key in self._incomplete_blocks or key in self._disk_blocks:
             to_complete = deque()
             to_complete.append(key)
 
@@ -331,14 +331,14 @@ class Completer:
                 inc_blocks = []
 
                 # incomplete blocks may be in the disk (serialized) or memory (active) cache
-                if my_key in self._catchup_blocks:
-                    cat_blocks = self._catchup_blocks[my_key]
-                    for serialized_block in cat_blocks:
+                if my_key in self._disk_blocks:
+                    disk_blocks = self._disk_blocks[my_key]
+                    for serialized_block in disk_blocks:
                         # create new wrapped block from stored byte string
                         block = Block()
                         block.ParseFromString(serialized_block)
                         inc_blocks += [BlockWrapper(block=block)]
-                    del self._catchup_blocks[my_key]
+                    del self._disk_blocks[my_key]
                 elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
                     del self._incomplete_blocks[my_key]
