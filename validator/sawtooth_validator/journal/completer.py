@@ -132,21 +132,21 @@ class Completer:
             return self._request_previous_if_not_already_requested(blkw)
 
     def _request_previous_if_not_already_requested(self, blkw):
-        # This checks if the block is a parent, as it was put in _requested by a child
+        # use some local variables to share the logic
+        cache = self._incomplete_blocks
+        value = blkw
+
+        # This checks if the block is a parent (since a child requested it) and therefore stable and disk cacheable
         if blkw.header_signature in self._requested:
             LOGGER.debug("EDE_CatchupInsert: %s", blkw.previous_block_id)
-            # store sealed parent blocks in a disk cache so that the whole chain doesn't have to be in memory during catchup
-            if blkw.previous_block_id not in self._catchup_blocks:
-                self._catchup_blocks[blkw.previous_block_id] = [blkw.block.SerializeToString()]
-            else:
-                self._catchup_blocks[blkw.previous_block_id] += [blkw.block.SerializeToString()]
-        else:
-            # this is a child block, may be multiple of them due to a fork
-            if blkw.previous_block_id not in self._incomplete_blocks:
-                self._incomplete_blocks[blkw.previous_block_id] = [blkw]
-            elif blkw not in \
-                    self._incomplete_blocks[blkw.previous_block_id]:
-                self._incomplete_blocks[blkw.previous_block_id] += [blkw]
+            cache = self._catchup_blocks
+            value = blkw.block.SerializeToString()
+
+        # this is a child block, may be multiple of them due to a fork
+        if blkw.previous_block_id not in cache:
+            cache[blkw.previous_block_id] = [value]
+        elif blkw not in cache[blkw.previous_block_id]:
+            cache[blkw.previous_block_id] += [value]
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
@@ -328,29 +328,29 @@ class Completer:
 
             while to_complete:
                 my_key = to_complete.popleft()
-                # incomplete blocks may be in the disk (sealed) or memory (active) cache
+                inc_blocks = []
+
+                # incomplete blocks may be in the disk (serialized) or memory (active) cache
                 if my_key in self._catchup_blocks:
-                    inc_blocks = self._catchup_blocks[my_key]
-                    for serialized_block in inc_blocks:
+                    cat_blocks = self._catchup_blocks[my_key]
+                    for serialized_block in cat_blocks:
                         # create new wrapped block from stored byte string
                         block = Block()
                         block.ParseFromString(serialized_block)
-                        # this new inc_block is the lone child of my_key
-                        inc_block = BlockWrapper(block=block)
-                        LOGGER.debug("EDE_BlockWrapper: {}".format(inc_block.header_signature))
-                        if self._complete_block(inc_block):
-                            LOGGER.debug("EDE_Complete Finished")
-                            self._send_block(inc_block.block)
-                            # now loop to process the child as a parent
-                            to_complete.append(inc_block.header_signature)
+                        inc_blocks += [BlockWrapper(block=block)]
                     del self._catchup_blocks[my_key]
                 elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
-                    for inc_block in inc_blocks:
-                        if self._complete_block(inc_block):
-                            self._send_block(inc_block.block)
-                            to_complete.append(inc_block.header_signature)
                     del self._incomplete_blocks[my_key]
+                
+                # now process these children blocks of my_key
+                for inc_block in inc_blocks:
+                    if self._complete_block(inc_block):
+                        self._send_block(inc_block.block)
+                        # use their ID to resolve if they have any children in the cache next
+                        to_complete.append(inc_block.header_signature)
+                    else
+                        LOGGER.warn("Failed to complete block %s", inc_block.header_signature)
 
     def _send_block(self, block):
         self._on_block_received(block.header_signature)
