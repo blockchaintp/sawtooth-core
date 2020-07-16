@@ -121,14 +121,14 @@ class Completer:
     def _put_or_request_if_missing_predecessor(self, blkw):
         try:
             # Create Ref-B
-            LOGGER.debug("EDE_BlockManager_Put: {}".format(blkw.header_signature))
+            LOGGER.debug("BlockManager Put: %s", blkw.header_signature)
             self._block_manager.put([blkw.block])
             return blkw
         except MissingPredecessor:
             # The predecessor dropped out of the block manager between when we
             # checked if it was there and when the block was determined to be
             # complete.
-            LOGGER.debug("EDE_MissingPredecessor: {}".format(blkw.previous_block_id))
+            LOGGER.debug("Missing Predecessor: %s", blkw.previous_block_id)
             return self._request_previous_if_not_already_requested(blkw)
 
     def _request_previous_if_not_already_requested(self, blkw):
@@ -138,7 +138,7 @@ class Completer:
 
         # This checks if the block is a parent (since a child requested it) and therefore stable and disk cacheable
         if blkw.header_signature in self._requested:
-            LOGGER.debug("EDE_diskInsert: %s", blkw.previous_block_id)
+            LOGGER.debug("Disk Caching %s", blkw.previous_block_id)
             cache = self._disk_blocks
             value = blkw.block.SerializeToString()
 
@@ -150,7 +150,7 @@ class Completer:
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
-            LOGGER.debug("EDE_AlreadyRequested: {} deps".format(blkw.previous_block_id))
+            LOGGER.debug("Skipping, already requested: %s", blkw.previous_block_id)
             return None
 
         LOGGER.debug(
@@ -181,7 +181,7 @@ class Completer:
 
         """
 
-        LOGGER.debug("EDE_CompleteBlock: {} prev {} inc_block {} inc_batch {}".format(block, block.previous_block_id, len(self._incomplete_blocks), len(self._incomplete_batches)))
+        LOGGER.debug("CompleteBlock Check: %s prev %s inc_block %d inc_batch %d", block, block.previous_block_id, len(self._incomplete_blocks), len(self._incomplete_batches))
 
         if block.header_signature in self._block_manager:
             LOGGER.debug("Drop duplicate block: %s", block)
@@ -207,7 +207,7 @@ class Completer:
         # The block is missing batches. Check to see if we can complete it.
         if len(block.batches) != len(block.header.batch_ids):
             building = True
-            LOGGER.debug("EDE_BatchesMissing: {} != {}".format(len(block.batches), len(block.header.batch_ids)))
+            LOGGER.debug("Batches missing: have %d expected %d", len(block.batches), len(block.header.batch_ids))
             for batch_id in block.header.batch_ids:
                 if batch_id not in self._batch_cache and \
                         batch_id not in temp_batches:
@@ -321,7 +321,6 @@ class Completer:
 
     def _process_incomplete_blocks(self, key):
         # Keys are either a block_id or batch_id
-        LOGGER.debug("EDE_ProcessIncompleteBlocks: {} of {}".format(key, len(self._incomplete_blocks)))
         if key in self._incomplete_blocks or key in self._disk_blocks:
             to_complete = deque()
             to_complete.append(key)
@@ -344,6 +343,7 @@ class Completer:
                     del self._incomplete_blocks[my_key]
                 
                 # now process these children blocks of my_key
+                LOGGER.debug("Processing %d incomplete blocks for parent %s", len(inc_blocks), my_key)
                 for inc_block in inc_blocks:
                     if self._complete_block(inc_block):
                         self._send_block(inc_block.block)
