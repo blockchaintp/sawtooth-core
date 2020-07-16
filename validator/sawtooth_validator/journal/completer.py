@@ -89,7 +89,6 @@ class Completer:
         self._get_committed_batch_by_txn_id = get_committed_batch_by_txn_id
 
         self._seen_txns = TimedCache(cache_keep_time, cache_purge_frequency)
-        LOGGER.debug("caches set to {} : {}".format(cache_keep_time, cache_purge_frequency))
         self._incomplete_batches = TimedCache(cache_keep_time,
                                               cache_purge_frequency)
         self._incomplete_blocks = TimedCache(cache_keep_time,
