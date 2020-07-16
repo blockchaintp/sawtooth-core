@@ -349,8 +349,8 @@ class Completer:
                         self._send_block(inc_block.block)
                         # use their ID to resolve if they have any children in the cache next
                         to_complete.append(inc_block.header_signature)
-                    else
-                        LOGGER.warn("Failed to complete block %s", inc_block.header_signature)
+                    else:
+                        LOGGER.warning("Failed to complete block %s", inc_block.header_signature)
 
     def _send_block(self, block):
         self._on_block_received(block.header_signature)
