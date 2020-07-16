@@ -145,7 +145,7 @@ class Completer:
         # this is a child block, may be multiple of them due to a fork
         if blkw.previous_block_id not in cache:
             cache[blkw.previous_block_id] = [value]
-        elif blkw not in cache[blkw.previous_block_id]:
+        elif value not in cache[blkw.previous_block_id]:
             cache[blkw.previous_block_id] += [value]
 
         # We have already requested the block, do not do so again
