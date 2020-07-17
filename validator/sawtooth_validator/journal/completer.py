@@ -93,7 +93,7 @@ class Completer:
                                               cache_purge_frequency)
         self._incomplete_blocks = TimedCache(cache_keep_time,
                                              cache_purge_frequency)
-        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"))
+        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"), eviction_policy='none', cull_limit=0)
         self._requested = TimedCache(requested_keep_time,
                                      cache_purge_frequency)
         self._get_chain_head = None
