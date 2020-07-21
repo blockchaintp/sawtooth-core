@@ -354,6 +354,14 @@ class Completer:
     def _send_block(self, block):
         self._on_block_received(block.header_signature)
 
+    def start(self):
+        if "0000000000000000" in self._disk_blocks:
+            LOGGER.info("Starting the disk catchup")
+            block_data = self._disk_blocks["0000000000000000"][0]
+            block = Block()
+            block.ParseFromString(block_data)
+            self.add_block(block)
+
     def set_get_chain_head(self, get_chain_head):
         self._get_chain_head = get_chain_head
 
