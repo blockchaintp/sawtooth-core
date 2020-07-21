@@ -463,6 +463,7 @@ class Validator:
         self._incoming_batch_sender = self._block_publisher.start()
         self._block_validator.start()
         self._chain_controller.start()
+        self._completer.start()
 
         self._completer.set_on_batch_received(self._incoming_batch_sender.send)
         signal_event = threading.Event()
