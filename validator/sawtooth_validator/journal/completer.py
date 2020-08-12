@@ -93,7 +93,9 @@ class Completer:
                                               cache_purge_frequency)
         self._incomplete_blocks = TimedCache(cache_keep_time,
                                              cache_purge_frequency)
-        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"), eviction_policy='none', cull_limit=0)
+        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"), 
+                                            eviction_policy='none', 
+                                            cull_limit=0)
         self._requested = TimedCache(requested_keep_time,
                                      cache_purge_frequency)
         self._get_chain_head = None
@@ -135,7 +137,8 @@ class Completer:
         cache = self._incomplete_blocks
         value = blkw
 
-        # This checks if the block is a parent (since a child requested it) and therefore stable and disk cacheable
+        # This checks if the block is a parent (since a child requested it) 
+        # and therefore stable and disk cacheable
         if blkw.header_signature in self._requested:
             LOGGER.debug("Disk Caching %s", blkw.previous_block_id)
             cache = self._disk_blocks
@@ -149,7 +152,8 @@ class Completer:
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
-            LOGGER.debug("Skipping, already requested: %s", blkw.previous_block_id)
+            LOGGER.debug("Skipping, already requested: %s", 
+                          blkw.previous_block_id)
             return None
 
         LOGGER.debug(
@@ -180,7 +184,9 @@ class Completer:
 
         """
 
-        LOGGER.debug("CompleteBlock Check: %s prev %s inc_block %d inc_batch %d", block, block.previous_block_id, len(self._incomplete_blocks), len(self._incomplete_batches))
+        LOGGER.debug("CompleteBlock Check: %s prev %s inc_block %d inc_batch %d", 
+                      block, block.previous_block_id, len(self._incomplete_blocks), 
+                      len(self._incomplete_batches))
 
         if block.header_signature in self._block_manager:
             LOGGER.debug("Drop duplicate block: %s", block)
@@ -206,7 +212,8 @@ class Completer:
         # The block is missing batches. Check to see if we can complete it.
         if len(block.batches) != len(block.header.batch_ids):
             building = True
-            LOGGER.debug("Batches missing: have %d expected %d", len(block.batches), len(block.header.batch_ids))
+            LOGGER.debug("Batches missing: have %d expected %d", len(block.batches), 
+                          len(block.header.batch_ids))
             for batch_id in block.header.batch_ids:
                 if batch_id not in self._batch_cache and \
                         batch_id not in temp_batches:
@@ -328,7 +335,8 @@ class Completer:
                 my_key = to_complete.popleft()
                 inc_blocks = []
 
-                # incomplete blocks may be in the disk (serialized) or memory (active) cache
+                # incomplete blocks may be in the disk (serialized) or memory
+                # (active) cache
                 if my_key in self._disk_blocks:
                     disk_blocks = self._disk_blocks[my_key]
                     for serialized_block in disk_blocks:
@@ -342,14 +350,17 @@ class Completer:
                     del self._incomplete_blocks[my_key]
                 
                 # now process these children blocks of my_key
-                LOGGER.debug("Processing %d incomplete blocks for parent %s", len(inc_blocks), my_key)
+                LOGGER.debug("Processing %d incomplete blocks for parent %s", 
+                              len(inc_blocks), my_key)
                 for inc_block in inc_blocks:
                     if self._complete_block(inc_block):
                         self._send_block(inc_block.block)
-                        # use their ID to resolve if they have any children in the cache next
+                        # use their ID to resolve if they have any children in 
+                        # the cache next
                         to_complete.append(inc_block.header_signature)
                     else:
-                        LOGGER.warning("Failed to complete block %s", inc_block.header_signature)
+                        LOGGER.warning("Failed to complete block %s", 
+                                        inc_block.header_signature)
 
     def _send_block(self, block):
         self._on_block_received(block.header_signature)
