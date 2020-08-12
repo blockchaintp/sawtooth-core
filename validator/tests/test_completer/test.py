@@ -46,7 +46,7 @@ class TestCompleter(unittest.TestCase):
         self.block_store = BlockStore(self.block_db)
         self.block_manager = BlockManager()
         self.block_manager.add_commit_store(self.block_store)
-        self.gossip = MockGossip()
+        self.gossip = MockGossip(),
         self.completer = Completer(
             block_manager=self.block_manager,
             transaction_committed=self.block_store.has_transaction,
@@ -54,7 +54,8 @@ class TestCompleter(unittest.TestCase):
             get_committed_batch_by_txn_id=(
                 self.block_store.get_batch_by_transaction
             ),
-            gossip=self.gossip)
+            gossip=self.gossip, 
+            data_dir=self.dir)
         self.completer.set_get_chain_head(lambda: self.block_store.chain_head)
         self.completer.set_on_block_received(self._on_block_received)
         self.completer.set_on_batch_received(self._on_batch_received)
