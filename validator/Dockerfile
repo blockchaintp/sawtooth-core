@@ -50,12 +50,15 @@ RUN apt-get install -y -q \
     python3-dev \
     python3-lmdb \
     python3-netifaces \
+    python3-pip \
     python3-pyformance \
     python3-secp256k1 \
     python3-toml \
     python3-yaml \
     python3-zmq \
     unzip
+
+RUN pip3 install diskcache
 
 RUN curl -OLsS https://github.com/google/protobuf/releases/download/v3.5.1/protoc-3.5.1-linux-x86_64.zip \
  && unzip protoc-3.5.1-linux-x86_64.zip -d protoc3 \

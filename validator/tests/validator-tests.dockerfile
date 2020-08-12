@@ -55,6 +55,7 @@ RUN apt-get install -y -q \
     python3-zmq \
     unzip
 
+
 RUN apt-get install -y -q \
     python3-cov-core \
     python3-nose2 \
@@ -62,6 +63,8 @@ RUN apt-get install -y -q \
 
 RUN pip3 install \
     coverage --upgrade
+
+RUN pip3 install diskcache
 
 RUN curl -OLsS https://github.com/google/protobuf/releases/download/v3.5.1/protoc-3.5.1-linux-x86_64.zip \
  && unzip protoc-3.5.1-linux-x86_64.zip -d protoc3 \
