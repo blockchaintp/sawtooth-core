@@ -137,7 +137,7 @@ class Completer:
         cache = self._incomplete_blocks
         value = blkw
 
-        # This checks if the block is a parent (since a child requested it) 
+        # This checks if the block is a parent (since a child requested it)
         # and therefore stable and disk cacheable
         if blkw.header_signature in self._requested:
             LOGGER.debug("Disk Caching %s", blkw.previous_block_id)
@@ -335,8 +335,8 @@ class Completer:
                 my_key = to_complete.popleft()
                 inc_blocks = []
 
-                # incomplete blocks may be in the disk (serialized) or memory
-                # (active) cache
+                # incomplete blocks may be in the disk (serialized) or
+                # memory (active) cache
                 if my_key in self._disk_blocks:
                     disk_blocks = self._disk_blocks[my_key]
                     for serialized_block in disk_blocks:
@@ -348,7 +348,7 @@ class Completer:
                 elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
                     del self._incomplete_blocks[my_key]
-                
+
                 # now process these children blocks of my_key
                 LOGGER.debug("Processing %d incomplete blocks for parent %s", 
                               len(inc_blocks), my_key)
