@@ -154,7 +154,7 @@ class Validator:
         block_store = BlockStore(block_db)
         # The cache keep time for the journal's block cache must be greater
         # than the cache keep time used by the completer.
-        base_keep_time = 1200
+        base_keep_time = 3600
 
         block_manager = BlockManager()
         block_manager.add_commit_store(block_store)
