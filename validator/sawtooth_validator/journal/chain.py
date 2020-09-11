@@ -55,7 +55,7 @@ class ChainController(OwnedPointer):
         block_status_store,
         consensus_notifier,
         consensus_registry,
-        state_pruning_block_depth=1000,
+        state_pruning_block_depth=1000000000,
         fork_cache_keep_time=300,  # seconds
         data_dir=None,
         observers=None
