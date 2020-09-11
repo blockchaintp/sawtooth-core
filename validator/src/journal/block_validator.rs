@@ -43,7 +43,7 @@ const BLOCKVALIDATION_QUEUE_RECV_TIMEOUT: u64 = 100;
 
 const BLOCK_VALIDATOR_THREAD_NUM: u64 = 2;
 
-const BLOCK_VALIDATION_RESULT_CACHE_SIZE: usize = 2048;
+const BLOCK_VALIDATION_RESULT_CACHE_SIZE: usize = 32768;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
