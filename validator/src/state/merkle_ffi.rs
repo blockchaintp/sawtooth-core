@@ -416,7 +416,6 @@ pub unsafe extern "C" fn merkle_db_update(
             *merkle_root = state_root.as_str().as_ptr();
 
             mem::forget(state_root);
-
             ErrorCode::Success
         }
         Err(StateDatabaseError::NotFound(addr)) => {

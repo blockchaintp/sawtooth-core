@@ -66,7 +66,7 @@ MAXIMUM_RETRY_FREQUENCY = 300
 MAXIMUM_STATIC_RETRY_FREQUENCY = 3600
 MAXIMUM_STATIC_RETRIES = 24
 
-TIME_TO_LIVE = 3
+TIME_TO_LIVE = 1
 
 # This is the protocol version number.  It should only be incremented when
 # there are changes to the network protocols, as well as only once per
