@@ -37,7 +37,7 @@ def load_default_validator_config():
         scheduler='parallel',
         minimum_peer_connectivity=3,
         maximum_peer_connectivity=10,
-        state_pruning_block_depth=1000000000,
+        state_pruning_block_depth=1000,
         fork_cache_keep_time=300,
         component_thread_pool_workers=10,
         network_thread_pool_workers=10,
