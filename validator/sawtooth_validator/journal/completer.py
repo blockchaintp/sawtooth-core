@@ -161,35 +161,38 @@ class Completer:
             cache[blkw.previous_block_id] += [value]
 
     def _knit_cache(self):
-        if self._knit_complete:
-            return
+        with self.lock:
+            if self._knit_complete:
+                return
 
-        count = 0
-        for block_id in self._raw_blocks:
-            raw_data = self._raw_blocks[block_id]
-            current_blkw = self._wrap_block(raw_data)[1]
-            value = current_blkw.block.SerializeToString()
-            if current_blkw.previous_block_id not in self._disk_blocks:
-                self._disk_blocks[current_blkw.previous_block_id] = [value]
-                count += 1
-            elif value not in self._disk_blocks[current_blkw.previous_block_id]:
-                self._disk_blocks[current_blkw.previous_block_id] += [value]
-                count += 1
-        self._knit_complete = True
-        LOGGER.debug("Knit %s blocks into cache", count)
+            count = 0
+            LOGGER.debug("Begin knitting cache")
+            for block_id in self._raw_blocks:
+                raw_data = self._raw_blocks[block_id]
+                current_blkw = self._wrap_block(raw_data)[1]
+                value = current_blkw.block.SerializeToString()
+                if current_blkw.previous_block_id not in self._disk_blocks:
+                    self._disk_blocks[current_blkw.previous_block_id] = [value]
+                    count += 1
+                elif value not in self._disk_blocks[current_blkw.previous_block_id]:
+                    self._disk_blocks[current_blkw.previous_block_id] += [value]
+                    count += 1
+            self._knit_complete = True
+            LOGGER.debug("Knit %s blocks into cache", count)
 
     def _clean_cache(self, blkw):
-        count = 0
-        cache_blkw = blkw
-        while cache_blkw.header_signature in self._raw_blocks:
-            del self._raw_blocks[cache_blkw.header_signature]
-            count += 1
-            if cache_blkw.previous_block_id in self._raw_blocks:
-                raw_data = self._raw_blocks[cache_blkw.previous_block_id]
-                cache_blkw = self._wrap_block(raw_data)[1]
-            else:
-                break
-        if count > 0:
+        with self.lock:
+            count = 0
+            cache_blkw = blkw
+            LOGGER.debug("Begin cleaning raw cache")
+            while cache_blkw.header_signature in self._raw_blocks:
+                del self._raw_blocks[cache_blkw.header_signature]
+                count += 1
+                if cache_blkw.previous_block_id in self._raw_blocks:
+                    raw_data = self._raw_blocks[cache_blkw.previous_block_id]
+                    cache_blkw = self._wrap_block(raw_data)[1]
+                else:
+                    break
             LOGGER.debug("Cleaned %s entries from raw cache", count)
 
     def _request_previous_if_not_already_requested(self, blkw):
