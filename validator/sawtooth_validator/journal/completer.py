@@ -166,25 +166,27 @@ class Completer:
                 return
 
             count = 0
+            updates = 0
             LOGGER.debug("Begin knitting cache")
             for block_id in self._raw_blocks:
                 raw_data = self._raw_blocks[block_id]
                 current_blkw = self._wrap_block(raw_data)[1]
-                value = current_blkw.block.SerializeToString()
                 if current_blkw.previous_block_id not in self._disk_blocks:
-                    self._disk_blocks[current_blkw.previous_block_id] = [value]
-                    count += 1
-                elif value not in self._disk_blocks[current_blkw.previous_block_id]:
-                    self._disk_blocks[current_blkw.previous_block_id] += [value]
-                    count += 1
+                    self._disk_blocks[current_blkw.previous_block_id] = [raw_data]
+                    updates += 1
+                elif raw_data not in self._disk_blocks[current_blkw.previous_block_id]:
+                    self._disk_blocks[current_blkw.previous_block_id] += [raw_data]
+                    updates += 1
+                count += 1
+                if count % 10000 == 0:
+                    LOGGER.debug("Knitted %s blocks so far, updates: %s", count, updates)
             self._knit_complete = True
-            LOGGER.debug("Knit %s blocks into cache", count)
+            LOGGER.debug("Knit %s blocks into cache with %s updates", count, updates)
 
     def _clean_cache(self, blkw):
         with self.lock:
             count = 0
             cache_blkw = blkw
-            LOGGER.debug("Begin cleaning raw cache")
             while cache_blkw.header_signature in self._raw_blocks:
                 del self._raw_blocks[cache_blkw.header_signature]
                 count += 1
@@ -193,7 +195,8 @@ class Completer:
                     cache_blkw = self._wrap_block(raw_data)[1]
                 else:
                     break
-            LOGGER.debug("Cleaned %s entries from raw cache", count)
+            if count > 0:
+                LOGGER.debug("Cleaned %s entries from raw cache", count)
 
     def _request_previous_if_not_already_requested(self, blkw):
         # use some local variables to share the logic
@@ -213,6 +216,8 @@ class Completer:
             if chain_head:
                 chain_head_blkw = BlockWrapper(chain_head)
                 self._clean_cache(chain_head_blkw)
+                self._knit_cache()
+
             while cached_blkw.previous_block_id in self._raw_blocks:
                 if chain_head_blkw and chain_head_blkw.header_signature == cached_blkw.previous_block_id:
                     cached_blkw = previous_blkw
@@ -224,10 +229,11 @@ class Completer:
                     cached_blkw = self._wrap_block(cached_data)[1]
                     descents = descents + 1
 
-            LOGGER.debug("Request missing predecessor of block: %s descents=%s",
-                         cached_blkw, descents)
-            self._requested[cached_blkw.previous_block_id] = None
-            self._gossip.broadcast_block_request(cached_blkw.previous_block_id)
+            if cached_blkw.previous_block_id not in self._requested:
+                LOGGER.debug("Request missing predecessor of block: %s descents=%s",
+                            cached_blkw, descents)
+                self._requested[cached_blkw.previous_block_id] = None
+                self._gossip.broadcast_block_request(cached_blkw.previous_block_id)
             return None
 
     def _complete_block(self, block):
@@ -412,9 +418,6 @@ class Completer:
                         block.ParseFromString(serialized_block)
                         inc_blkw = BlockWrapper(block=block)
                         inc_blocks += [inc_blkw]
-                        # if inc_blkw.header_signature in self._raw_blocks:
-                        #     self._clean_cache
-                        #     del self._raw_blocks[inc_blkw.header_signature]
                     del self._disk_blocks[my_key]
                 elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
