@@ -93,9 +93,13 @@ class Completer:
                                               cache_purge_frequency)
         self._incomplete_blocks = TimedCache(cache_keep_time,
                                              cache_purge_frequency)
-        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"), 
-                                            eviction_policy='none', 
+        self._disk_blocks = diskcache.Cache(os.path.join(data_dir, "catchup"),
+                                            eviction_policy='none',
                                             cull_limit=0)
+        self._raw_blocks = diskcache.Cache(os.path.join(data_dir, "raw"),
+                                           eviction_policy='none',
+                                           cull_limit=0)
+        self._knit_complete = False
         self._requested = TimedCache(requested_keep_time,
                                      cache_purge_frequency)
         self._get_chain_head = None
@@ -122,46 +126,115 @@ class Completer:
     def _put_or_request_if_missing_predecessor(self, blkw):
         try:
             # Create Ref-B
-            LOGGER.debug("BlockManager Put: %s", blkw.header_signature)
+            LOGGER.debug("BlockManager Put: %s", blkw)
             self._block_manager.put([blkw.block])
             return blkw
         except MissingPredecessor:
             # The predecessor dropped out of the block manager between when we
             # checked if it was there and when the block was determined to be
             # complete.
-            LOGGER.debug("Missing Predecessor: %s", blkw.previous_block_id)
+            LOGGER.debug("Missing predecessor for block: %s", blkw)
             return self._request_previous_if_not_already_requested(blkw)
 
-    def _request_previous_if_not_already_requested(self, blkw):
+    def _cache_block(self, blkw):
         # use some local variables to share the logic
         cache = self._incomplete_blocks
         value = blkw
 
         # This checks if the block is a parent (since a child requested it)
         # and therefore stable and disk cacheable
+        cache_to_disk = "memory"
         if blkw.header_signature in self._requested:
-            LOGGER.debug("Disk Caching %s", blkw.previous_block_id)
             cache = self._disk_blocks
+            cache_to_disk = "disk"
             value = blkw.block.SerializeToString()
+            if blkw.header_signature not in self._raw_blocks:
+                LOGGER.debug("Raw caching block: %s", blkw)
+                self._raw_blocks[blkw.header_signature] = value
 
         # this is a child block, may be multiple of them due to a fork
         if blkw.previous_block_id not in cache:
+            LOGGER.debug("Caching block: %s as child to %s", blkw, cache_to_disk)
             cache[blkw.previous_block_id] = [value]
         elif value not in cache[blkw.previous_block_id]:
+            LOGGER.debug("Caching block: %s as sibling to %s", blkw, cache_to_disk)
             cache[blkw.previous_block_id] += [value]
+
+    def _knit_cache(self):
+        with self.lock:
+            if self._knit_complete:
+                return
+
+            count = 0
+            updates = 0
+            LOGGER.debug("Begin knitting cache")
+            for block_id in self._raw_blocks:
+                raw_data = self._raw_blocks[block_id]
+                current_blkw = self._wrap_block(raw_data)[1]
+                if current_blkw.previous_block_id not in self._disk_blocks:
+                    self._disk_blocks[current_blkw.previous_block_id] = [raw_data]
+                    updates += 1
+                elif raw_data not in self._disk_blocks[current_blkw.previous_block_id]:
+                    self._disk_blocks[current_blkw.previous_block_id] += [raw_data]
+                    updates += 1
+                count += 1
+                if count % 10000 == 0:
+                    LOGGER.debug("Knitted %s blocks so far, updates: %s", count, updates)
+            self._knit_complete = True
+            LOGGER.debug("Knit %s blocks into cache with %s updates", count, updates)
+
+    def _clean_cache(self, blkw):
+        with self.lock:
+            count = 0
+            cache_blkw = blkw
+            while cache_blkw.header_signature in self._raw_blocks:
+                del self._raw_blocks[cache_blkw.header_signature]
+                count += 1
+                if cache_blkw.previous_block_id in self._raw_blocks:
+                    raw_data = self._raw_blocks[cache_blkw.previous_block_id]
+                    cache_blkw = self._wrap_block(raw_data)[1]
+                else:
+                    break
+            if count > 0:
+                LOGGER.debug("Cleaned %s entries from raw cache", count)
+
+    def _request_previous_if_not_already_requested(self, blkw):
+        # use some local variables to share the logic
+        self._cache_block(blkw)
 
         # We have already requested the block, do not do so again
         if blkw.previous_block_id in self._requested:
-            LOGGER.debug("Skipping, already requested: %s", 
-                          blkw.previous_block_id)
+            LOGGER.debug(
+                "Skip repeat request missing predecessor of block: %s", blkw)
             return None
+        else:
+            cached_blkw = blkw
+            previous_blkw = None
+            descents = 0
+            chain_head = self._get_chain_head()
+            chain_head_blkw = None
+            if chain_head:
+                chain_head_blkw = BlockWrapper(chain_head)
+                self._clean_cache(chain_head_blkw)
+                self._knit_cache()
 
-        LOGGER.debug(
-            "Request missing predecessor: %s",
-            blkw.previous_block_id)
-        self._requested[blkw.previous_block_id] = None
-        self._gossip.broadcast_block_request(blkw.previous_block_id)
-        return None
+            while cached_blkw.previous_block_id in self._raw_blocks:
+                if chain_head_blkw and chain_head_blkw.header_signature == cached_blkw.previous_block_id:
+                    cached_blkw = previous_blkw
+                    break
+                else:
+                    self._requested[cached_blkw.previous_block_id] = None
+                    previous_blkw = cached_blkw
+                    cached_data = self._raw_blocks[cached_blkw.previous_block_id]
+                    cached_blkw = self._wrap_block(cached_data)[1]
+                    descents = descents + 1
+
+            if cached_blkw.previous_block_id not in self._requested:
+                LOGGER.debug("Request missing predecessor of block: %s descents=%s",
+                            cached_blkw, descents)
+                self._requested[cached_blkw.previous_block_id] = None
+                self._gossip.broadcast_block_request(cached_blkw.previous_block_id)
+            return None
 
     def _complete_block(self, block):
         """ Check the block to see if it is complete and if it can be passed to
@@ -184,10 +257,6 @@ class Completer:
 
         """
 
-        LOGGER.debug("CompleteBlock Check: %s prev %s inc_block %d inc_batch %d", 
-                      block, block.previous_block_id, len(self._incomplete_blocks), 
-                      len(self._incomplete_batches))
-
         if block.header_signature in self._block_manager:
             LOGGER.debug("Drop duplicate block: %s", block)
             return None
@@ -196,6 +265,10 @@ class Completer:
         # manager, that it will still be in there when this block is complete.
         if block.previous_block_id not in self._block_manager:
             return self._request_previous_if_not_already_requested(block)
+
+        LOGGER.debug("CompleteBlock Check: %s inc_block %d inc_batch %d",
+                     block, len(self._incomplete_blocks),
+                     len(self._incomplete_batches))
 
         # Check for same number of batch_ids and batches
         # If different starting building batch list, Otherwise there is a batch
@@ -212,8 +285,8 @@ class Completer:
         # The block is missing batches. Check to see if we can complete it.
         if len(block.batches) != len(block.header.batch_ids):
             building = True
-            LOGGER.debug("Batches missing: have %d expected %d", len(block.batches), 
-                          len(block.header.batch_ids))
+            LOGGER.debug("Batches missing: have %d expected %d", len(block.batches),
+                         len(block.header.batch_ids))
             for batch_id in block.header.batch_ids:
                 if batch_id not in self._batch_cache and \
                         batch_id not in temp_batches:
@@ -343,35 +416,60 @@ class Completer:
                         # create new wrapped block from stored byte string
                         block = Block()
                         block.ParseFromString(serialized_block)
-                        inc_blocks += [BlockWrapper(block=block)]
+                        inc_blkw = BlockWrapper(block=block)
+                        inc_blocks += [inc_blkw]
                     del self._disk_blocks[my_key]
                 elif my_key in self._incomplete_blocks:
                     inc_blocks = self._incomplete_blocks[my_key]
                     del self._incomplete_blocks[my_key]
 
                 # now process these children blocks of my_key
-                LOGGER.debug("Processing %d incomplete blocks for parent %s", 
-                              len(inc_blocks), my_key)
+                LOGGER.debug("Processing %d incomplete blocks for parent %s",
+                             len(inc_blocks), my_key)
                 for inc_block in inc_blocks:
                     if self._complete_block(inc_block):
                         self._send_block(inc_block.block)
-                        # use their ID to resolve if they have any children in 
+                        # use their ID to resolve if they have any children in
                         # the cache next
                         to_complete.append(inc_block.header_signature)
                     else:
-                        LOGGER.warning("Failed to complete block %s", 
-                                        inc_block.header_signature)
+                        LOGGER.warning("Failed to complete block %s",
+                                       inc_block.header_signature)
 
     def _send_block(self, block):
         self._on_block_received(block.header_signature)
 
+    def _wrap_block(self, block_data):
+        block = Block()
+        block.ParseFromString(block_data)
+        blkw = BlockWrapper(block)
+        return (block, blkw)
+
     def start(self):
-        if "0000000000000000" in self._disk_blocks:
-            LOGGER.info("Starting the disk catchup")
-            block_data = self._disk_blocks["0000000000000000"][0]
-            block = Block()
-            block.ParseFromString(block_data)
-            self.add_block(block)
+        start_block = self.get_chain_head()
+        blkw = None
+        if start_block:
+            blkw = BlockWrapper(start_block)
+        LOGGER.info("Chain head is block: %s", blkw)
+        if blkw:
+            self._clean_cache(blkw)
+            self._knit_cache()
+            if blkw.header_signature in self._disk_blocks:
+                LOGGER.info("Starting the disk catchup from block: %s", blkw)
+                block_data = self._disk_blocks[blkw.header_signature][0]
+                block = self._wrap_block(block_data)[0]
+                self.add_block(block)
+            else:
+                LOGGER.info("No blocks to catch up from disk yet")
+        else:
+            self._knit_cache()
+            if "0000000000000000" in self._disk_blocks:
+                LOGGER.info("Starting the disk catchup from genesis")
+                block_data = self._disk_blocks["0000000000000000"][0]
+                block = self._wrap_block(block_data)[0]
+                self.add_block(block)
+            else:
+                LOGGER.info("No chain head yet and disk blocks not cached to genesis")
 
     def set_get_chain_head(self, get_chain_head):
         self._get_chain_head = get_chain_head

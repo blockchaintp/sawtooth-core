@@ -18,6 +18,8 @@
 #![allow(unknown_lints)]
 
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::io;
 use std::marker::Send;
 use std::marker::Sync;
@@ -159,6 +161,8 @@ struct ChainControllerState {
     observers: Vec<Box<ChainObserver>>,
     state_pruning_manager: StatePruningManager,
     fork_cache: ForkCache,
+    outstanding_new: HashSet<String>,
+    deferred_new: VecDeque<Block>,
 }
 
 impl ChainControllerState {
@@ -293,6 +297,8 @@ impl<TEP: ExecutionPlatform + Clone + 'static, PV: PermissionVerifier + Clone + 
                 chain_head: None,
                 state_pruning_manager,
                 fork_cache: ForkCache::new(fork_cache_keep_time),
+                outstanding_new: HashSet::new(),
+                deferred_new: VecDeque::new(),
             })),
             block_validator,
             block_validation_results,
@@ -454,7 +460,15 @@ impl<TEP: ExecutionPlatform + Clone + 'static, PV: PermissionVerifier + Clone + 
                         state
                             .block_references
                             .insert(block_ref.block_id().to_owned(), block_ref);
-                        self.consensus_notifier.notify_block_new(&block);
+                        state.deferred_new.push_back(block.clone());
+                        if state.outstanding_new.len() < 10 {
+                            if let Some(queued_block) = state.deferred_new.pop_front() {
+                                state
+                                    .outstanding_new
+                                    .insert(queued_block.header_signature.clone());
+                                self.consensus_notifier.notify_block_new(&queued_block);
+                            }
+                        }
                         Some(block)
                     }
                     Err(err) => {
@@ -666,6 +680,20 @@ impl<TEP: ExecutionPlatform + Clone + 'static, PV: PermissionVerifier + Clone + 
                 // for (moved into chain head in case of commit, dropped otherwise)
                 self.consensus_notifier
                     .notify_block_valid(&block.header_signature);
+
+                let mut state = self
+                    .state
+                    .write()
+                    .expect("No lock holder should have poisoned the lock");
+                state.outstanding_new.remove(&block.header_signature);
+                if state.outstanding_new.len() < 10 {
+                    if let Some(queued_block) = state.deferred_new.pop_front() {
+                        state
+                            .outstanding_new
+                            .insert(queued_block.header_signature.clone());
+                        self.consensus_notifier.notify_block_new(&queued_block);
+                    }
+                }
             }
             BlockStatus::Invalid => {
                 self.consensus_notifier
@@ -675,6 +703,15 @@ impl<TEP: ExecutionPlatform + Clone + 'static, PV: PermissionVerifier + Clone + 
                     .state
                     .write()
                     .expect("No lock holder should have poisoned the lock");
+                state.outstanding_new.remove(&block.header_signature);
+                if state.outstanding_new.len() < 10 {
+                    if let Some(queued_block) = state.deferred_new.pop_front() {
+                        state
+                            .outstanding_new
+                            .insert(queued_block.header_signature.clone());
+                        self.consensus_notifier.notify_block_new(&queued_block);
+                    }
+                }
 
                 // Drop Ref-C: The block has been found to be invalid, and we are no longer
                 // interested in it. The invalid result will be cached for a period.
